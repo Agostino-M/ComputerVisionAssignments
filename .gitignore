@@ -175,9 +175,9 @@ cython_debug/
 
 # Custom
 .DS_Store
-.zip
-.txt
-.pkl
-.joblib
-.bck
+*.zip
+*.txt
+*.pkl
+*.joblib
+*.bck
 Assignment_2/data/

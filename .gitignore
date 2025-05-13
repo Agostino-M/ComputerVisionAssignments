@@ -172,3 +172,12 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Custom
+.DS_Store
+.zip
+.txt
+.pkl
+.joblib
+.bck
+Assignment_2/data/

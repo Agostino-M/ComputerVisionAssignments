@@ -1,0 +1,65 @@
+{
+    "paths": {
+        "fake": "data/fake_cropped_faces",
+        "real": "data/real_uncropped_faces/lfw-deepfunneled/lfw-deepfunneled",
+        "output_real_crop_dir": "data/real_cropped_faces"
+    },
+    "output": {
+        "metadata_csv": "dataset.csv",
+        "models_xlsx": "model_selection.xlsx",
+        "best_model_file_model": "model.joblib",
+        "best_model_file_scaler": "scaler.joblib",
+        "best_model_config_json": "best_model_config.json"
+    },
+    "classifiers": [
+        "random_forest",
+        "logistic_regression",
+        "linear_svc"
+    ],
+    "splits": {
+        "p_train": 0.6,
+        "p_test": 0.2,
+        "p_val": 0.2
+    },
+    "filter": {
+        "type": "gaussian",
+        "params": {
+            "ksize": 3,
+            "sigma": 0.5
+        }
+    },
+    "configurations": [
+        {
+            "lbp_method": "default",
+            "do_scale": false,
+            "P": 256,
+            "R": 1,
+            "bins": 256,
+            "range_max": 256
+        },
+        {
+            "lbp_method": "default",
+            "do_scale": true,
+            "P": 256,
+            "R": 1,
+            "bins": 256,
+            "range_max": 256
+        },
+        {
+            "lbp_method": "uniform",
+            "do_scale": false,
+            "P": 8,
+            "R": 1,
+            "bins": 256,
+            "range_max": 10
+        },
+        {
+            "lbp_method": "uniform",
+            "do_scale": true,
+            "P": 8,
+            "R": 1,
+            "bins": 256,
+            "range_max": 10
+        }
+    ]
+}

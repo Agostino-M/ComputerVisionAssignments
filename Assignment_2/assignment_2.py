@@ -106,7 +106,7 @@ def apply_preprocessing_filter(image, filter_config):
     else:
         raise ValueError(f"Unsupported filter type: {ftype}")
 
-def extract_dataset_features(df_dataset, output_path, P, R, n_bins, method, config_filter):
+def extract_dataset_features(df_dataset, output_path, P, R, n_bins, range_max, method, config_filter):
     #print(len(df))
     features = []
     
@@ -122,7 +122,7 @@ def extract_dataset_features(df_dataset, output_path, P, R, n_bins, method, conf
 
             lbp = local_binary_pattern(filtered_img, P, R, method)
             #print(P, n_bins)
-            hist, _ = np.histogram(lbp.ravel(), bins=np.arange(n_bins + 1), range=(0, int(lbp.max() + 1)), density=True) #density: False: n° sample in bins, density: True: normalized PDF with sum = 1
+            hist, _ = np.histogram(lbp.ravel(), bins=n_bins, range=(0, range_max), density=True)
 
             features.append({
                 "features": hist,
@@ -163,13 +163,13 @@ def preparing_dataset(base_path_fake_imgs, base_path_real_imgs, metadata_csv, ou
     df_dataset.to_csv(metadata_csv, index=False)
     print(f"[DEBUG] Dataset saved to '{metadata_csv}' with {len(df_dataset)} entries.")
     
-    lbp_configs = set([(x["lbp_method"], x["P"], x["R"], x["bins"]) for x in lbp_configs])
+    lbp_configs = set([(x["lbp_method"], x["P"], x["R"], x["bins"], x["range_max"]) for x in lbp_configs])
     for config in lbp_configs:
         print(f"[INFO] lbp_configs: {config}")
-        method, P, R, n_bins = config
+        method, P, R, n_bins, range_max = config
         features_pkl = f"features_{method}_{P}_{R}_{n_bins}.pkl"
         
-        extract_dataset_features(df_dataset, features_pkl, P, R, n_bins, method, filter_config)
+        extract_dataset_features(df_dataset, features_pkl, P, R, n_bins, range_max, method, filter_config)
 
 def evaluate_all_models(configurations, splits, classifiers, models_xlsx):
     all_models = []
@@ -279,9 +279,9 @@ def save_results(all_results, filepath):
 
 def model_selection(X_train, y_train, X_val, y_val, classifiers, do_scale, lbp_method, lbp_P, lbp_R, output_filepath):
     classifier_map = {
-        "random_forest": RandomForestClassifier(),
-        "logistic_regression": LogisticRegression(),
-        "linear_svc": LinearSVC(),
+        "random_forest": RandomForestClassifier(min_samples_leaf=2, max_features="sqrt", random_state=42),
+        "logistic_regression": LogisticRegression(random_state=42),
+        "linear_svc": LinearSVC(random_state=42),
     }
 
     all_results = []
@@ -383,6 +383,7 @@ def compute_pipeline(cfg):
         "P": best_model["lbp_config"]["P"],
         "R": best_model["lbp_config"]["R"],
         "bins": best_model["lbp_config"]["bins"],
+        "range_max": best_model["lbp_config"]["range_max"],
         "classifier": best_model["classifier"],
         "do_scale": best_model["scaling"]
     }
@@ -418,14 +419,13 @@ def do_inference(image, cfg):
         dlib_rect = dlib.rectangle(x, y, x + w, y + h)
         aligned_img = align_face(im_copy, predictor, dlib_rect)
         face_crop = aligned_img[y:y+h, x:x+w]
-        cv2.imshow(f"Face {i}", face_crop)
 
         # Apply filter
         filtered_img = apply_preprocessing_filter(face_crop, filter_config)
 
         # Extract LBP features
         lbp = local_binary_pattern(filtered_img, P=config["P"], R=config["R"], method=config["lbp_method"])
-        hist, _ = np.histogram(lbp.ravel(), bins=np.arange(config["bins"] + 1), range=(0, int(lbp.max() + 1)), density=True)
+        hist, _ = np.histogram(lbp.ravel(), bins=config["bins"], range=(0, config["range_max"]), density=True)
         X_input = hist.reshape(1, config["bins"])
 
         if scaler:

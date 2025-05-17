@@ -18,6 +18,7 @@ from tqdm import tqdm
 from joblib import dump, load
 
 def process_real_uncropped_imgs(base_path_real_imgs, output_real_crop_dir):
+    """ Preprocess real images: read, detect face and crop each real image """
     dataset_entries = []
     face_detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -36,6 +37,7 @@ def process_real_uncropped_imgs(base_path_real_imgs, output_real_crop_dir):
                 continue
 
             try:
+                # Detect faces
                 faces = face_detector.detectMultiScale(image, scaleFactor=1.1, minNeighbors=6, minSize=(100, 100))
 
                 if len(faces) == 1:
@@ -60,6 +62,7 @@ def process_real_uncropped_imgs(base_path_real_imgs, output_real_crop_dir):
     return dataset_entries
 
 def align_face(image, predictor, face_rect):
+    """ Function that aligns the face using the eyes line """
     landmarks = predictor(image, face_rect)
 
     # Get mean of eyes landmarks (index 36-41 left, 42-47 right)
@@ -79,6 +82,7 @@ def align_face(image, predictor, face_rect):
     return aligned
 
 def apply_preprocessing_filter(image, filter_config):
+    """ Applies filter to :image based on :filter_config """
     if not filter_config or filter_config["type"] == "none":
         return image
 
@@ -107,6 +111,7 @@ def apply_preprocessing_filter(image, filter_config):
         raise ValueError(f"Unsupported filter type: {ftype}")
 
 def extract_dataset_features(df_dataset, output_path, P, R, n_bins, range_max, method, config_filter):
+    """ Function that extracts features from dataset based on :config_filter and lbp params method, P, R, bins, range """
     #print(len(df))
     features = []
     
@@ -118,12 +123,15 @@ def extract_dataset_features(df_dataset, output_path, P, R, n_bins, range_max, m
             if image is None:
                 raise ValueError(f"Image not found or bad: {row['filepath']}")
             
+            # Apply filter
             filtered_img = apply_preprocessing_filter(image, config_filter)
 
+            # Execute LBP
             lbp = local_binary_pattern(filtered_img, P, R, method)
             #print(P, n_bins)
             hist, _ = np.histogram(lbp.ravel(), bins=n_bins, range=(0, range_max), density=True)
 
+            # Save features
             features.append({
                 "features": hist,
                 "label": row["label"],
@@ -139,10 +147,11 @@ def extract_dataset_features(df_dataset, output_path, P, R, n_bins, range_max, m
     print(f"[RESULT] Extracting features done, saved file with {len(features)} vectors in '{output_path}'")
 
 def preparing_dataset(base_path_fake_imgs, base_path_real_imgs, metadata_csv, output_real_crop_dir, lbp_configs, filter_config):
+    """ Function that prepare dataset doing preprocess and extracting features for classification step """
     print("[DEBUG] Preparing dataset...")
     dataset_entries = []
 
-    # Loaind cropped fake images to dataset
+    # Loading cropped fake images to dataset
     dirs = os.listdir(base_path_fake_imgs)
     for subject_folder in tqdm(dirs, total=len(dirs), desc="Loading fake face images"):
         subject_path = os.path.join(base_path_fake_imgs, subject_folder)
@@ -157,7 +166,8 @@ def preparing_dataset(base_path_fake_imgs, base_path_real_imgs, metadata_csv, ou
             })
 
     print(f"[INFO] Loaded fake face images: {len(dataset_entries)}")
-    # Loaind cropped real images to dataset
+
+    # Loading cropped real images to dataset
     dataset_entries.extend(process_real_uncropped_imgs(base_path_real_imgs, output_real_crop_dir))
     df_dataset = pd.DataFrame(dataset_entries)
     df_dataset.to_csv(metadata_csv, index=False)
@@ -172,6 +182,7 @@ def preparing_dataset(base_path_fake_imgs, base_path_real_imgs, metadata_csv, ou
         extract_dataset_features(df_dataset, features_pkl, P, R, n_bins, range_max, method, filter_config)
 
 def evaluate_all_models(configurations, splits, classifiers, models_xlsx):
+    """ Function that uses lbp configurations to evaluate all models """
     all_models = []
     config_to_features = {}
     for i, config in enumerate(configurations):
@@ -191,6 +202,7 @@ def evaluate_all_models(configurations, splits, classifiers, models_xlsx):
         config_id = f"{lbp_method}_{'scale' if do_scale else 'not_scale'}"
         models_output_csv = f"lbp-{config_id}.csv"
 
+        # Save configuration
         config_to_features[config_id] = {
             "X_train": X_train,
             "y_train": y_train,
@@ -217,13 +229,15 @@ def evaluate_all_models(configurations, splits, classifiers, models_xlsx):
     return all_models, config_to_features
 
 def get_X_y_from_subject_list(data: pickle, subject_list: list):
+    """ Gets X (entries) and y (classes) data from features """
     entries = [entry for entry in data if entry["subject_id"] in subject_list]
     X = np.array([entry["features"] for entry in entries])
     y = np.array([entry["label"] for entry in entries])
     return X, y
 
 def split_subjects_train_test_val(features_path, p_train, p_test, p_val):
-    assert p_train + p_test + p_val == 1, "Total probability must be 1"
+    """ Function that splits features based on train, validation, test percentages """
+    assert p_train + p_test + p_val == 1, "Total percentage must be 1"
 
     print(f"[INFO] Reading features from pickle {features_path}")
     with open(features_path, "rb") as f:
@@ -250,6 +264,7 @@ def split_subjects_train_test_val(features_path, p_train, p_test, p_val):
     return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
 def train_and_validate(X_train, y_train, X_val, y_val, classifier, do_scale=False, lbp_P=None, lbp_R=None):
+    """ Function that train and validate :classifier with StandardScaler based on :do_scale """
     if do_scale:
         print("[INFO] Using StandardScaler...")
         scaler = StandardScaler()
@@ -278,6 +293,7 @@ def save_results(all_results, filepath):
     df.to_csv(filepath, index=False)
 
 def model_selection(X_train, y_train, X_val, y_val, classifiers, do_scale, lbp_method, lbp_P, lbp_R, output_filepath):
+    """ Function that train different classifiers based on :lbp_method """
     classifier_map = {
         "random_forest": RandomForestClassifier(min_samples_leaf=2, max_features="sqrt", random_state=42),
         "logistic_regression": LogisticRegression(random_state=42),
@@ -299,6 +315,7 @@ def model_selection(X_train, y_train, X_val, y_val, classifiers, do_scale, lbp_m
     return all_results
 
 def save_model_selection_output(all_models, output_filepath="model_selection.xlsx"):
+    """ Function that saves models output into table format """
     df = pd.DataFrame(all_models)
 
     df = df.pivot_table(
@@ -312,8 +329,9 @@ def save_model_selection_output(all_models, output_filepath="model_selection.xls
     print(f"[RESULT] Models Output saved: '{output_filepath}'")
 
 def evaluate_best_model(best_model, config_to_features):
+    """ Function that evaulate best model on test data """
+    # Get best congifuration
     best_model_features = config_to_features[best_model["config_id"]]
-
     X_train = best_model_features["X_train"]
     y_train = best_model_features["y_train"]
     X_test = best_model_features["X_test"]
@@ -343,6 +361,12 @@ def evaluate_best_model(best_model, config_to_features):
     plt.show()
 
 def compute_pipeline(cfg):
+    """Main function that:
+    - prepare dataset if no pickles were found
+    - evaulate all configurations of Models, Scaling and Lbp features
+    - evaluate best configuration on test data
+    - save best configuration
+    """
     base_path_fake_imgs = cfg["paths"]["fake"] 
     base_path_real_imgs = cfg["paths"]["real"]
     output_real_crop_dir = cfg["paths"]["output_real_crop_dir"]
@@ -366,18 +390,18 @@ def compute_pipeline(cfg):
 
     all_models, config_to_features = evaluate_all_models(configurations, splits, classifiers, models_xlsx)
     best_model = max(all_models, key=lambda r: r["val_accuracy"])
-    #print(f"[DEBUG] Best model is: {best_model}")
+    # print(f"[DEBUG] Best model is: {best_model}")
     print(f"[RESULT] Best model is lbp_{best_model['lbp_config']['lbp_method']} {best_model['classifier']} (scaling={best_model['scaling']}) VAL_ACC={best_model['val_accuracy']:.4f}")
     evaluate_best_model(best_model, config_to_features)
 
-    # Salva il modello
+    # Save best model
     dump(best_model["model"], best_model_file_model)
 
-    # Salva lo scaler, se esiste
+    # Save scaler, if needed
     if best_model["scaling"] and "scaler" in best_model:
         dump(best_model["scaler"], best_model_file_scaler)
 
-    # Salva la configurazione migliore
+    # Save best configuration
     best_model_config = {
         "lbp_method": best_model["lbp_config"]["lbp_method"],
         "P": best_model["lbp_config"]["P"],
@@ -392,6 +416,7 @@ def compute_pipeline(cfg):
 
 
 def do_inference(image, cfg):
+    """ Inference function that uses best configuration of Model, Scaler, Lbp features to predict class of :image"""
     best_model_file_model = cfg["output"]["best_model_file_model"]
     best_model_file_scaler = cfg["output"]["best_model_file_scaler"]
     best_model_config_json = cfg["output"]["best_model_config_json"]
@@ -452,7 +477,7 @@ if __name__ == "__main__":
     parser.add_argument("--path", type=str, help="Path to image file to classify")
     parser.add_argument("--force_pipeline", action="store_true", help="Force calculation of best model")
     args = parser.parse_args()
-    
+
     print("Started with following parameters:")
     print(f"\t - Config: {args.config}")
     print(f"\t - Path: {args.path}")
@@ -475,4 +500,3 @@ if __name__ == "__main__":
         do_inference(image, cfg)
     else:
         print("[DEBUG] No image path found to classify")
-    
